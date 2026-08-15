@@ -30,7 +30,7 @@ SLACK, PV, PQ = 3, 2, 1
 @dataclass
 class PowerFlowResult:
     converged: bool
-    iterations: int
+    iterations: int          # number of state updates performed by the solver
     V: np.ndarray            # complex bus voltages
     Vm: np.ndarray
     Va_deg: np.ndarray
@@ -63,10 +63,9 @@ def _unpack(case):
         Qg[i] += g.get("Qg", 0.0) / base
         Qmin[i] = (0 if np.isinf(Qmin[i]) else Qmin[i]) + g["Qmin"] / base
         Qmax[i] = (0 if np.isinf(Qmax[i]) else Qmax[i]) + g["Qmax"] / base
-        if types[i] != SLACK:
-            Vm[i] = g["Vset"]
-        elif "Vset" in g:
-            Vm[i] = g["Vset"]
+        vset = g.get("Vset")
+        if vset is not None:
+            Vm[i] = vset
     shunts = {b["bus"]: (b["Gs"] / base, b["Bs"] / base) for b in buses if b["Gs"] or b["Bs"]}
     Y = build_ybus(n, case["branches"], shunts)
     return n, base, types.copy(), Pd, Qd, Pg, Qg, Vm, Va, Qmin, Qmax, Y
@@ -113,7 +112,7 @@ def _line_flows(case, V, base):
 
 
 def _apply_q_limits(types, Q, Qg, Qd, Qmin, Qmax, Vm, Vset, original_types):
-    """Switch PV to PQ if Q outside limits; PQ back to PV if voltage recovers."""
+    """Switch PV to PQ if Q leaves its limits and back if the voltage recovers."""
     changed = False
     for i in range(len(types)):
         if original_types[i] != PV:
@@ -213,6 +212,8 @@ def fast_decoupled(case, tol=1e-8, max_iter=100):
     # B' : series susceptance only, no shunts, no taps (XB scheme)
     Bp = np.zeros((n, n))
     for br in case["branches"]:
+        if br.get("status", 1) == 0:
+            continue
         i, k = br["from"] - 1, br["to"] - 1
         bx = 1.0 / br["x"]
         Bp[i, i] += bx
@@ -260,8 +261,16 @@ def _finish(case, method, converged, it, Vm, Va, Y, Pd, Qd, types, history, base
 
 
 def solve(case, method="nr", **kw):
+    """Dispatch to a solver by name: 'nr', 'gs' or 'fdlf'.
+
+    Generator reactive limit enforcement (enforce_q_limits=True) is
+    implemented for Newton-Raphson only. Passing it to the other methods
+    raises so the limit is never silently ignored.
+    """
     if method == "nr":
         return newton_raphson(case, **kw)
+    if kw.pop("enforce_q_limits", False):
+        raise ValueError("enforce_q_limits is supported by the 'nr' method only")
     if method == "gs":
         return gauss_seidel(case, **kw)
     if method == "fdlf":
@@ -270,9 +279,14 @@ def solve(case, method="nr", **kw):
 
 
 def power_balance_mismatch(case, result):
-    """Largest |S_specified - S_calculated| in pu over non-slack P and PQ Q."""
+    """Largest |S_specified - S_calculated| in pu over non-slack P and PQ Q.
+
+    Q mismatch is checked at buses that were PQ in the input case. Buses
+    switched from PV to PQ by the reactive limit logic are excluded because
+    their reactive setpoint is the clamped limit, not the case data.
+    """
     n, base, types, Pd, Qd, Pg, Qg, Vm, Va, Qmin, Qmax, Y = _unpack(case)
     S = _injections(Y, result.V)
     dP = (Pg - Pd - S.real)[types != SLACK]
-    dQ = (Qg - Qd - S.imag)[types == PQ]   # original PQ buses only
+    dQ = (Qg - Qd - S.imag)[(types == PQ) & (result.bus_types == PQ)]
     return float(np.max(np.abs(np.concatenate([dP, dQ]))))

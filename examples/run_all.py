@@ -32,7 +32,7 @@ def fig_voltage_profile():
     ref = [REFERENCE_VM[i] for i in buses]
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.bar(buses - 0.2, res.Vm, 0.4, label="Newton-Raphson (this toolkit)")
-    ax.bar(buses + 0.2, ref, 0.4, label="MATPOWER case14 reference")
+    ax.bar(buses + 0.2, ref, 0.4, label="IEEE CDF printed solution")
     ax.set_ylim(0.95, 1.10)
     ax.set_xlabel("bus")
     ax.set_ylabel("|V| (pu)")
@@ -67,18 +67,28 @@ def fig_fault_currents():
     # subtransient reactances for the five machines (assumed, typical values)
     xd2 = {1: 0.25j, 2: 0.25j, 3: 0.30j, 6: 0.30j, 8: 0.30j}
     z1 = fault.build_zbus(n, branches, xd2)
-    z2 = z1
-    # zero sequence: lines 3x positive sequence, transformers 4-7, 4-9, 5-6 grounded wye-delta
-    # modelled as open on the delta side (bus 7, 9, 6 side); machines grounded through xd0 = 0.1
+    z2 = z1  # assumption: X2 = X''d for every machine
+    # Zero sequence, all values assumed since the published case carries no
+    # sequence data. Line X0 is taken as 3x the positive sequence reactance, a
+    # common planning rule of thumb for overhead lines. Transformers 4-7, 4-9
+    # and 5-6 are treated as grounded wye on the high side, buses 4 and 5, and
+    # delta on the low side, buses 7, 9 and 6. Each therefore appears in the
+    # zero sequence network as its leakage reactance from the wye bus to
+    # ground, with the delta side open. Every machine is assumed grounded
+    # through a zero sequence reactance of j0.1 pu, which gives the otherwise
+    # isolated 6 to 14 island a ground source at buses 6 and 8. Real machine
+    # grounding varies, so treat the SLG and DLG bars as illustrative.
     z0_branches = []
     for b in branches:
         pair = (b["from"], b["to"])
         if pair in [(4, 7), (4, 9), (5, 6)]:
             continue
         z0_branches.append(dict(b, x=3 * b["x"], r=3 * b["r"]))
-    x0 = {k: 0.10j for k in xd2}
-    x0.update({7: 0.2j, 9: 0.2j, 6: 0.2j})  # delta side ground reference for the study
-    z0 = fault.build_zbus(n, z0_branches, x0)
+    x0 = {k: 0.10j for k in xd2}                       # machine grounding, assumed
+    xt = {(4, 7): 0.20912j, (4, 9): 0.55618j, (5, 6): 0.25202j}
+    shunts0 = {4: xt[(4, 7)] * xt[(4, 9)] / (xt[(4, 7)] + xt[(4, 9)]),  # two in parallel
+               5: xt[(5, 6)]}
+    z0 = fault.build_zbus(n, z0_branches, x0, shunts=shunts0)
     labels = ["3ph", "SLG", "LL", "DLG"]
     data = {lab: [] for lab in labels}
     for bus in range(1, n + 1):
@@ -92,7 +102,8 @@ def fig_fault_currents():
         ax.bar(x + (i - 1.5) * w, data[lab], w, label=lab)
     ax.set_xlabel("faulted bus")
     ax.set_ylabel("fault current (pu, 100 MVA base)")
-    ax.set_title("IEEE 14-bus fault currents (assumed machine reactances)")
+    ax.set_title("IEEE 14-bus fault currents, assumed sequence data (X2 = X''d, "
+                 "assumed X0 and machine grounding)")
     ax.set_xticks(x)
     ax.legend()
     fig.tight_layout()

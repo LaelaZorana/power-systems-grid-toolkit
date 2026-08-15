@@ -21,6 +21,12 @@ from scipy.integrate import solve_ivp
 
 
 def critical_clearing_angle(pm, pmax1, pmax2, pmax3):
+    if pm > pmax1:
+        raise ValueError("no prefault equilibrium, Pm exceeds Pmax1")
+    if pm > pmax3:
+        raise ValueError("no postfault equilibrium, Pm exceeds Pmax3")
+    if pmax3 <= pmax2:
+        raise ValueError("postfault Pmax3 must exceed during-fault Pmax2")
     d0 = np.arcsin(pm / pmax1)
     dmax = np.pi - np.arcsin(pm / pmax3)
     cosd = (pm * (dmax - d0) + pmax3 * np.cos(dmax) - pmax2 * np.cos(d0)) / (pmax3 - pmax2)
@@ -60,10 +66,16 @@ def swing_curve(pm, pmax1, pmax2, pmax3, H, t_clear, f=60.0, t_end=3.0, D=0.0, d
             return [y[1], ws / (2 * H) * (pm - pmax * np.sin(y[0]) - D * y[1])]
         return rhs
 
+    if t_clear <= 0.0:
+        # fault cleared instantly, integrate the postfault network only
+        t2 = np.linspace(0.0, t_end, max(int(round(t_end / dt)), 2))
+        s2 = solve_ivp(make_rhs(pmax3), (0.0, t_end), [d0, 0.0],
+                       t_eval=t2, max_step=dt, rtol=1e-8)
+        return s2.t, np.rad2deg(s2.y[0]), s2.y[1]
     t1 = np.linspace(0, t_clear, max(int(round(t_clear / dt)), 2))
     s1 = solve_ivp(make_rhs(pmax2), (0, t_clear), [d0, 0.0], t_eval=t1, max_step=dt, rtol=1e-8)
     t2 = np.linspace(t_clear, t_end, max(int(round((t_end - t_clear) / dt)), 2))
-    s2 = solve_ivp(make_rhs(pmax3), (t_clear, t_end), s1.y[:, -1] if s1.y.size else [d0, 0.0],
+    s2 = solve_ivp(make_rhs(pmax3), (t_clear, t_end), s1.y[:, -1],
                    t_eval=t2, max_step=dt, rtol=1e-8)
     t = np.concatenate([s1.t, s2.t])
     delta = np.concatenate([s1.y[0], s2.y[0]])

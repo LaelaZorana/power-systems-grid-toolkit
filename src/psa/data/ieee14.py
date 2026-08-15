@@ -5,7 +5,13 @@ power systems test case archive (Christie, 1993), in the form used by
 MATPOWER case14. Base 100 MVA. Bus 9 carries a 19 MVAr shunt capacitor.
 Transformers 4-7, 4-9 and 5-6 have off-nominal taps on the from side.
 
-Reference solution (MATPOWER case14, generator Q limits not enforced):
+Reference solution below: the solved voltages printed in the IEEE Common
+Data Format file from the same archive, given there to three decimals in Vm
+and two in Va. This is the CDF printout, not a MATPOWER run. MATPOWER
+runpf on case14 agrees with it to the printed precision except at bus 4,
+where MATPOWER gives Vm 1.018 and Va -10.31. This toolkit reproduces the
+CDF table to a maximum Vm error of 0.13 percent, at bus 4, and a maximum
+angle error of 0.02 deg. Q limits not enforced.
     bus  Vm      Va(deg)
     1    1.060    0.00
     2    1.045   -4.98

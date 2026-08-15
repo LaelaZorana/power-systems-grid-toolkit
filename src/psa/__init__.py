@@ -7,7 +7,8 @@ Modules
     economic    economic dispatch by lambda iteration
     renewables  PV, wind, hosting capacity and battery peak shaving
     stability   single machine infinite bus transient stability
-    data        embedded test systems (IEEE 14-bus)
+    data        embedded IEEE 14-bus case, JSON case loader for the IEEE 14, 30
+                and 57 bus systems in data/cases, CSV profile loader
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

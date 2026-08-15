@@ -9,9 +9,9 @@ the condition becomes (dC_i/dP) / (1 - dP_L/dP_i) = lambda (penalty factors),
 solved by an outer lambda bisection with an inner fixed point on P.
 
 Unit commitment note: which units to switch on over a horizon is a
-combinatorial problem (start-up costs, min up/down times). A simple
-priority-list heuristic is provided in `priority_list_commitment`; a proper
-solution would use dynamic programming or mixed integer programming.
+combinatorial problem with start-up costs and minimum up and down times. A
+simple priority-list heuristic is provided in `priority_list_commitment`. A
+proper solution would use dynamic programming or mixed integer programming.
 """
 
 from __future__ import annotations
@@ -27,21 +27,47 @@ def _dispatch_for_lambda(units, lam, penalty=None):
     P = np.zeros(len(units))
     for i, u in enumerate(units):
         pf = 1.0 if penalty is None else penalty[i]
-        p = (lam / pf - u["b"]) / (2 * u["c"])
+        if u["c"] == 0.0:
+            # linear cost unit: bang-bang on the incremental cost b
+            p = u["Pmax"] if lam / pf >= u["b"] else u["Pmin"]
+        else:
+            p = (lam / pf - u["b"]) / (2 * u["c"])
         P[i] = min(max(p, u["Pmin"]), u["Pmax"])
     return P
 
 
 def economic_dispatch(units, demand, B=None, B0=None, B00=0.0, tol=1e-6, max_iter=200):
-    """Return dict with P (array), lam, losses, cost, iterations.
+    """Return dict with P (array), lam, losses, cost, iterations, converged.
 
     units: list of dicts a, b, c, Pmin, Pmax (MW and $/h units)
     demand: MW
     B, B0, B00: optional loss coefficients in MW-consistent units
+
+    Raises ValueError when the demand plus estimated losses falls outside
+    [sum Pmin, sum Pmax], so an infeasible problem never returns silently.
     """
     units = list(units)
+    pmin_sum = sum(u["Pmin"] for u in units)
+    pmax_sum = sum(u["Pmax"] for u in units)
+    if B is not None:
+        Bm = np.asarray(B, dtype=float)
+        b0v = np.zeros(len(units)) if B0 is None else np.asarray(B0, dtype=float)
+        Pmax_vec = np.array([u["Pmax"] for u in units], dtype=float)
+        Pmin_vec = np.array([u["Pmin"] for u in units], dtype=float)
+        loss_hi = float(Pmax_vec @ Bm @ Pmax_vec + b0v @ Pmax_vec + B00)
+        loss_lo = float(Pmin_vec @ Bm @ Pmin_vec + b0v @ Pmin_vec + B00)
+    else:
+        loss_hi = loss_lo = 0.0
+    if demand + loss_lo < pmin_sum or demand + loss_hi > pmax_sum:
+        raise ValueError(
+            f"demand {demand} MW is infeasible for units with total range "
+            f"[{pmin_sum}, {pmax_sum}] MW and losses in [{loss_lo:.2f}, {loss_hi:.2f}] MW")
     lam_lo = min(u["b"] + 2 * u["c"] * u["Pmin"] for u in units)
-    lam_hi = max(u["b"] + 2 * u["c"] * u["Pmax"] for u in units) * 3 + 1
+    # upper bracket: the largest incremental cost at Pmax puts every unit at
+    # its maximum, expand it until the dispatched total actually covers demand
+    lam_hi = max(u["b"] + 2 * u["c"] * u["Pmax"] for u in units) + 1.0
+    while _dispatch_for_lambda(units, lam_hi).sum() < demand + loss_hi and lam_hi < 1e12:
+        lam_hi *= 2.0
     P = np.array([u["Pmin"] for u in units], dtype=float)
     losses = 0.0
     it = 0
@@ -69,8 +95,9 @@ def economic_dispatch(units, demand, B=None, B0=None, B00=0.0, tol=1e-6, max_ite
             lam_hi = lam
         else:
             lam_lo = lam
+    mismatch = P.sum() - demand - losses
     return dict(P=P, lam=lam, losses=losses, cost=unit_cost(units, P), iterations=it,
-                mismatch=P.sum() - demand - losses)
+                mismatch=mismatch, converged=bool(abs(mismatch) < 100 * tol))
 
 
 def priority_list_commitment(units, demand):

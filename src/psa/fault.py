@@ -26,8 +26,8 @@ def build_zbus(n_bus, branches, source_impedances=None, shunts=None):
     """Zbus = inv(Ybus) with source impedances {bus: z} added to ground.
 
     'branches' entries need 'from', 'to', 'x' and optionally 'r'. Line charging
-    and taps are ignored for the fault study (typical short circuit practice);
-    pass 'shunts' {bus: z_to_ground} to include them explicitly.
+    and taps are ignored for the fault study, which is typical short circuit
+    practice. Pass 'shunts' {bus: z_to_ground} to include them explicitly.
     """
     Y = np.zeros((n_bus, n_bus), dtype=complex)
     for br in branches:
@@ -43,8 +43,14 @@ def build_zbus(n_bus, branches, source_impedances=None, shunts=None):
     return np.linalg.inv(Y)
 
 
+def _check_bus(bus, n):
+    if not 1 <= bus <= n:
+        raise ValueError(f"bus {bus} out of range 1..{n}")
+
+
 def three_phase_fault(zbus, bus, vf=1.0, zf=0.0):
     """Return (I_fault, V_bus_array) for a bolted (or Zf) three-phase fault."""
+    _check_bus(bus, len(zbus))
     k = bus - 1
     i_f = vf / (zbus[k, k] + zf)
     v = vf - zbus[:, k] * i_f
@@ -52,6 +58,7 @@ def three_phase_fault(zbus, bus, vf=1.0, zf=0.0):
 
 
 def sequence_thevenin(z1bus, z2bus, z0bus, bus):
+    _check_bus(bus, len(z1bus))
     k = bus - 1
     return z1bus[k, k], z2bus[k, k], z0bus[k, k]
 
