@@ -1,10 +1,6 @@
 # Power systems grid toolkit
 
-A compact, tested Python library for steady-state and dynamic power system
-analysis, with a set of renewables integration studies on top: PV and wind
-models, hosting capacity sweeps, and battery peak shaving. Everything is
-written from the equations up with numpy and scipy, and validated against
-published results for the IEEE 14-bus system and textbook examples.
+Grid analysis tools usually come as sealed commercial packages, but the core algorithms are just linear algebra, so this library builds them from the equations up in numpy and scipy: steady state and dynamic power system analysis with renewables integration studies on top, meaning PV and wind models, hosting capacity sweeps and battery peak shaving. Everything is validated against published results for the IEEE 14-bus system and textbook examples. The 14-bus voltages match MATPOWER to 0.1 percent.
 
 ## Contents
 
@@ -28,42 +24,15 @@ figures/              output figures
 
 ## Theory summary
 
-Power flow. The network is described by the bus admittance matrix
-Y = G + jB. Injected complex power at each bus is S_i = V_i conj(sum_k Y_ik V_k).
-Newton-Raphson linearises the P and Q mismatch equations in polar form and
-solves the full Jacobian each iteration, converging quadratically (4
-iterations on the 14-bus case to 1e-8). Gauss-Seidel updates one voltage at
-a time with an acceleration factor and needs tens of iterations. The
-fast-decoupled method exploits the weak P-V and Q-theta coupling of
-transmission networks and uses two constant matrices B' (series reactances)
-and B'' (imaginary part of Y). PV buses hold voltage magnitude; if a
-generator reaches a reactive limit the bus is switched to PQ at that limit.
+Power flow starts from the bus admittance matrix Y = G + jB, and the injected complex power at each bus is S_i = V_i conj(sum_k Y_ik V_k). Newton Raphson linearises the P and Q mismatch equations in polar form and solves the full Jacobian each iteration, so it converges quadratically and takes 4 iterations on the 14-bus case to reach 1e-8. Gauss Seidel updates one voltage at a time with an acceleration factor and needs tens of iterations to do the same job. The fast decoupled method exploits the weak coupling between P and V and between Q and theta in transmission networks, so it gets away with two constant matrices, B prime from the series reactances and B double prime from the imaginary part of Y. PV buses hold voltage magnitude, and when a generator hits a reactive limit the bus is switched to PQ at that limit.
 
-Faults. Zbus is the inverse of Ybus with machine reactances included. A
-bolted three-phase fault at bus k draws I_f = V_f / Z_kk. Unsymmetrical
-faults are solved with symmetrical components: the sequence Thevenin
-impedances at the faulted bus are connected in series (SLG), in parallel
-between positive and negative (LL), or with negative and zero in parallel
-(DLG).
+Faults work through Zbus, the inverse of Ybus with machine reactances included. A bolted three phase fault at bus k draws I_f = V_f / Z_kk. Unsymmetrical faults use symmetrical components: the sequence Thevenin impedances at the faulted bus connect in series for SLG, in parallel between positive and negative for LL, or with negative and zero in parallel for DLG.
 
-Economic dispatch. With quadratic cost curves the optimum satisfies equal
-incremental cost across units inside their limits. Lambda is found by
-bisection; when losses are modelled by B-coefficients the incremental cost is
-scaled by penalty factors 1 / (1 - dP_L/dP_i).
+Economic dispatch with quadratic cost curves reduces to one condition, equal incremental cost across all units inside their limits. Lambda is found by bisection, and when losses are modelled with B coefficients the incremental cost is scaled by penalty factors of 1 over 1 minus dP_L/dP_i.
 
-Renewables. PV output follows a PVWatts style model, DC power proportional
-to irradiance and corrected linearly for cell temperature. Wind power uses a
-cubic curve between cut-in and rated speed. Hosting capacity is estimated by
-injecting PV at a bus in steps and running a full power flow at each step.
-The battery model finds by bisection the lowest flat peak cap that a given
-energy and power rating can hold on a daily load profile.
+Renewables follow simple physical models. PV output uses a PVWatts style model where DC power is proportional to irradiance and corrected linearly for cell temperature, and wind power follows a cubic curve between cut in and rated speed. Hosting capacity is estimated by injecting PV at a bus in steps and running a full power flow at each step until a voltage ceiling is hit. The battery model finds by bisection the lowest flat peak cap that a given energy and power rating can hold on a daily load profile.
 
-Transient stability. The single machine infinite bus swing equation
-(2H / omega_s) d2delta/dt2 = P_m - P_max sin(delta) is integrated with
-scipy for the during-fault and postfault networks. The equal-area criterion
-gives the critical clearing angle in closed form and, for a fault at the
-machine terminal, the critical clearing time in closed form; the numeric
-result is obtained by bisection on the clearing time.
+Transient stability integrates the single machine infinite bus swing equation, 2H over omega_s times d2delta/dt2 = P_m - P_max sin delta, with scipy for the during fault and postfault networks. The equal area criterion gives the critical clearing angle in closed form, and for a fault at the machine terminal it gives the critical clearing time in closed form too, while the numeric answer comes from bisection on the clearing time. The two agree to under 1 percent.
 
 ## API
 
@@ -93,9 +62,7 @@ stability.critical_clearing_time_numeric(pm, pmax1, pmax2, pmax3, H)
 stability.swing_curve(pm, pmax1, pmax2, pmax3, H, t_clear)
 ```
 
-Case format: a dict with `base_mva`, `buses` (bus, type 3/2/1 for slack/PV/PQ,
-Pd, Qd, Gs, Bs, Vm, Va), `gens` (bus, Pg, Qg, Qmax, Qmin, Vset, Pmax, Pmin)
-and `branches` (from, to, r, x, b, tap).
+The case format is a dict with `base_mva`, `buses` holding bus, type 3/2/1 for slack, PV and PQ, Pd, Qd, Gs, Bs, Vm and Va, `gens` holding bus, Pg, Qg, Qmax, Qmin, Vset, Pmax and Pmin, and `branches` holding from, to, r, x, b and tap.
 
 ## Validation
 
@@ -115,10 +82,7 @@ and `branches` (from, to, r, x, b, tap).
 | PV at standard test conditions | rated power | exact | `test_pv_output_at_stc_equals_rated` |
 | Economic dispatch | Saadat ex. 7.4: 450 / 325 / 200 MW, lambda 9.4 | matches to 1e-3 | `test_economic_dispatch_saadat_example` |
 
-Key example numbers (from `examples/run_all.py`):
-three-phase fault 10.5 pu at bus 1 and 3.3 pu at bus 14 (assumed machine
-reactances), PV hosting capacity at bus 14 about 25 MW for a 1.06 pu ceiling,
-a 60 MWh / 20 MW battery cuts the 118 MW net peak to 98 MW.
+Key numbers from `examples/run_all.py`: a three phase fault draws 10.5 pu at bus 1 and 3.3 pu at bus 14 with the assumed machine reactances, PV hosting capacity at bus 14 is about 25 MW for a 1.06 pu ceiling, and a 60 MWh, 20 MW battery cuts the 118 MW net peak to 98 MW.
 
 ## Figures
 
@@ -130,13 +94,11 @@ a 60 MWh / 20 MW battery cuts the 118 MW net peak to 98 MW.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install numpy scipy matplotlib pandas pytest
-pip install -e .            # optional; tests also work via pyproject pythonpath
+pip install -e .            # optional, tests also work through pyproject pythonpath
 pytest -q
 python examples/run_all.py  # regenerates figures/
 ```
 
 ## Data source
 
-IEEE 14-bus data from the University of Washington power systems test case
-archive as distributed in MATPOWER `case14`. Machine reactances used in the
-fault example are assumed typical values, not part of the published case.
+The IEEE 14-bus data comes from the University of Washington power systems test case archive as distributed in MATPOWER `case14`. Machine reactances used in the fault example are assumed typical values and are not part of the published case.
